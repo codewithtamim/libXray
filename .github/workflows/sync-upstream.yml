@@ -1,0 +1,52 @@
+name: sync upstream
+
+on:
+  schedule:
+    - cron: 0 0 */3 * *
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: add upstream
+        run: |
+          git remote add upstream https://github.com/XTLS/libXray.git
+          git fetch upstream main
+
+      - name: check for changes
+        id: check
+        run: |
+          commits=$(git log develop..upstream/main --oneline 2>/dev/null || true)
+          if [ -z "$commits" ]; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "commits<<EOF" >> $GITHUB_OUTPUT
+            echo "$commits" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+
+      - name: create sync branch and pr
+        if: steps.check.outputs.has_changes == 'true'
+        run: |
+          branch="sync/upstream-$(date +%s)"
+          git checkout -b "$branch" upstream/main
+          git push origin "$branch"
+          gh pr create \
+            --base develop \
+            --head "$branch" \
+            --title "sync from upstream" \
+            --body "Automated sync from XTLS/libXray upstream" \
+            --repo ${{ github.repository }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
